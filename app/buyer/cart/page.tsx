@@ -1,7 +1,7 @@
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 import { verifyToken } from "@/lib/auth"
-import { createServerClient } from "@/lib/supabase"
+import { getDb } from "@/lib/mongodb"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
@@ -12,25 +12,33 @@ import BuyNowButton from "@/components/buy-now-button"
 import CartItemControls from "@/components/cart-item-controls"
 
 async function getCartItems(buyerId: string) {
-  const supabase = createServerClient()
-
-  const { data: cartItems, error } = await supabase
-    .from("cart_items")
-    .select(`
-      *,
-      product:products(
-        *,
-        seller:users!products_seller_id_fkey(name, location)
-      )
-    `)
-    .eq("buyer_id", buyerId)
-    .order("created_at", { ascending: false })
-
-  if (error) {
-    console.error("Error fetching cart:", error)
-    return []
-  }
-
+  const db = await getDb()
+  const cartItems = await db
+    .collection("cart_items")
+    .aggregate([
+      { $match: { buyer_id: buyerId } },
+      { $sort: { created_at: -1 } },
+      {
+        $lookup: {
+          from: "products",
+          localField: "product_id",
+          foreignField: "id",
+          as: "product",
+        },
+      },
+      { $addFields: { product: { $arrayElemAt: ["$product", 0] } } },
+      {
+        $lookup: {
+          from: "users",
+          localField: "product.seller_id",
+          foreignField: "id",
+          as: "seller",
+        },
+      },
+      { $addFields: { "product.seller": { $arrayElemAt: ["$seller", 0] } } },
+      { $project: { "product.seller.password_hash": 0 } },
+    ])
+    .toArray()
   return cartItems || []
 }
 

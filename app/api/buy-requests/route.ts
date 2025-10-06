@@ -1,11 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { cookies } from "next/headers"
 import { verifyToken } from "@/lib/auth"
-import { createServerClient } from "@/lib/supabase"
+import { getDb } from "@/lib/mongodb"
 
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = cookies()
+    const cookieStore = await cookies()
     const token = cookieStore.get("auth-token")?.value
 
     if (!token) {
@@ -18,16 +18,13 @@ export async function POST(request: NextRequest) {
     }
 
     const { product_id, quantity = 1, buyer_location } = await request.json()
-    const supabase = createServerClient()
+    const db = await getDb()
 
-    // Get product details to find seller
-    const { data: product, error: productError } = await supabase
-      .from("products")
-      .select("seller_id, stock_count")
-      .eq("id", product_id)
-      .single()
+    const product = await db
+      .collection("products")
+      .findOne({ id: product_id }, { projection: { seller_id: 1, stock_count: 1 } })
 
-    if (productError || !product) {
+    if (!product) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 })
     }
 
@@ -36,24 +33,19 @@ export async function POST(request: NextRequest) {
     }
 
     // Create buy request
-    const { data: buyRequest, error } = await supabase
-      .from("buy_requests")
-      .insert({
-        buyer_id: decoded.userId,
-        product_id,
-        seller_id: product.seller_id,
-        quantity,
-        buyer_location,
-        status: "pending",
-      })
-      .select()
-      .single()
-
-    if (error) {
-      console.error("Buy request error:", error)
-      return NextResponse.json({ error: "Failed to create buy request" }, { status: 500 })
-    }
-
+    const created_at = new Date().toISOString()
+    const id = `${decoded.userId}-${product_id}-${created_at}`
+    await db.collection("buy_requests").insertOne({
+      id,
+      buyer_id: decoded.userId,
+      product_id,
+      seller_id: product.seller_id,
+      quantity,
+      buyer_location,
+      status: "pending",
+      created_at,
+    })
+    const buyRequest = await db.collection("buy_requests").findOne({ id })
     return NextResponse.json(buyRequest)
   } catch (error) {
     console.error("Buy request error:", error)

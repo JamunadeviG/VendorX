@@ -1,7 +1,7 @@
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 import { verifyToken } from "@/lib/auth"
-import { createServerClient } from "@/lib/supabase"
+import { getDb } from "@/lib/mongodb"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import Link from "next/link"
@@ -9,23 +9,33 @@ import { MapPin, Clock, User, ArrowLeft, ShoppingBag } from "lucide-react"
 import LogoutButton from "@/components/logout-button"
 
 async function getBuyRequests(sellerId: string) {
-  const supabase = createServerClient()
-
-  const { data: buyRequests, error } = await supabase
-    .from("buy_requests")
-    .select(`
-      *,
-      buyer:users!buy_requests_buyer_id_fkey(name, email, location),
-      product:products(title, price, image_url)
-    `)
-    .eq("seller_id", sellerId)
-    .order("created_at", { ascending: false })
-
-  if (error) {
-    console.error("Error fetching buy requests:", error)
-    return []
-  }
-
+  const db = await getDb()
+  const buyRequests = await db
+    .collection("buy_requests")
+    .aggregate([
+      { $match: { seller_id: sellerId } },
+      { $sort: { created_at: -1 } },
+      {
+        $lookup: {
+          from: "users",
+          localField: "buyer_id",
+          foreignField: "id",
+          as: "buyer",
+        },
+      },
+      { $addFields: { buyer: { $arrayElemAt: ["$buyer", 0] } } },
+      {
+        $lookup: {
+          from: "products",
+          localField: "product_id",
+          foreignField: "id",
+          as: "product",
+        },
+      },
+      { $addFields: { product: { $arrayElemAt: ["$product", 0] } } },
+      { $project: { "buyer.password_hash": 0 } },
+    ])
+    .toArray()
   return buyRequests || []
 }
 

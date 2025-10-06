@@ -1,7 +1,7 @@
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 import { verifyToken } from "@/lib/auth"
-import { createServerClient } from "@/lib/supabase"
+import { getDb } from "@/lib/mongodb"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import Link from "next/link"
@@ -11,19 +11,12 @@ import LogoutButton from "@/components/logout-button"
 import DeleteProductButton from "@/components/delete-product-button"
 
 async function getSellerProducts(sellerId: string) {
-  const supabase = createServerClient()
-
-  const { data: products, error } = await supabase
-    .from("products")
-    .select("*")
-    .eq("seller_id", sellerId)
-    .order("created_at", { ascending: false })
-
-  if (error) {
-    console.error("Error fetching products:", error)
-    return []
-  }
-
+  const db = await getDb()
+  const products = await db
+    .collection("products")
+    .find({ seller_id: sellerId })
+    .sort({ created_at: -1 })
+    .toArray()
   return products || []
 }
 

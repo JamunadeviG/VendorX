@@ -56,15 +56,9 @@ export default function Header() {
           {/* Auth Buttons */}
           <div className="flex items-center space-x-4">
             <Link href="/auth/login">
-              <Button className="btn-secondary">
+              <Button className="btn-primary">
                 <LogIn className="mr-2 h-4 w-4" />
                 Sign In
-              </Button>
-            </Link>
-            <Link href="/auth/signup">
-              <Button className="btn-primary">
-                <UserPlus className="mr-2 h-4 w-4" />
-                Sign Up
               </Button>
             </Link>
           </div>

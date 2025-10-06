@@ -1,7 +1,7 @@
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 import { verifyToken } from "@/lib/auth"
-import { createServerClient } from "@/lib/supabase"
+import { getDb } from "@/lib/mongodb"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
@@ -11,30 +11,29 @@ import LogoutButton from "@/components/logout-button"
 import AddToCartButton from "@/components/add-to-cart-button"
 
 async function getBuyerData(buyerId: string) {
-  const supabase = createServerClient()
+  const db = await getDb()
 
-  // Get all products
-  const { data: products } = await supabase
-    .from("products")
-    .select(`
-      *,
-      seller:users!products_seller_id_fkey(name, location)
-    `)
-    .gt("stock_count", 0)
-    .order("created_at", { ascending: false })
-    .limit(8)
+  const products = await db
+    .collection("products")
+    .aggregate([
+      { $match: { stock_count: { $gt: 0 } } },
+      { $sort: { created_at: -1 } },
+      { $limit: 8 },
+      {
+        $lookup: {
+          from: "users",
+          localField: "seller_id",
+          foreignField: "id",
+          as: "seller",
+        },
+      },
+      { $addFields: { seller: { $arrayElemAt: ["$seller", 0] } } },
+      { $project: { "seller.password_hash": 0 } },
+    ])
+    .toArray()
 
-  // Get cart items count
-  const { count: cartCount } = await supabase
-    .from("cart_items")
-    .select("*", { count: "exact", head: true })
-    .eq("buyer_id", buyerId)
-
-  // Get buy requests count
-  const { count: buyRequestsCount } = await supabase
-    .from("buy_requests")
-    .select("*", { count: "exact", head: true })
-    .eq("buyer_id", buyerId)
+  const cartCount = await db.collection("cart_items").countDocuments({ buyer_id: buyerId })
+  const buyRequestsCount = await db.collection("buy_requests").countDocuments({ buyer_id: buyerId })
 
   return {
     products: products || [],

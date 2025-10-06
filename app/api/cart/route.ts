@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { cookies } from "next/headers"
 import { verifyToken } from "@/lib/auth"
-import { createServerClient } from "@/lib/supabase"
+import { getDb } from "@/lib/mongodb"
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,46 +18,22 @@ export async function POST(request: NextRequest) {
     }
 
     const { product_id, quantity = 1 } = await request.json()
-    const supabase = createServerClient()
+    const db = await getDb()
 
-    // Check if item already exists in cart
-    const { data: existingItem } = await supabase
-      .from("cart_items")
-      .select("*")
-      .eq("buyer_id", decoded.userId)
-      .eq("product_id", product_id)
-      .single()
+    const existingItem = await db.collection("cart_items").findOne({ buyer_id: decoded.userId, product_id })
 
     if (existingItem) {
       // Update quantity
-      const { data: updatedItem, error } = await supabase
-        .from("cart_items")
-        .update({ quantity: existingItem.quantity + quantity })
-        .eq("id", existingItem.id)
-        .select()
-        .single()
-
-      if (error) {
-        return NextResponse.json({ error: "Failed to update cart" }, { status: 500 })
-      }
-
+      await db
+        .collection("cart_items")
+        .updateOne({ id: existingItem.id }, { $set: { quantity: existingItem.quantity + quantity } })
+      const updatedItem = await db.collection("cart_items").findOne({ id: existingItem.id })
       return NextResponse.json(updatedItem)
     } else {
-      // Add new item
-      const { data: newItem, error } = await supabase
-        .from("cart_items")
-        .insert({
-          buyer_id: decoded.userId,
-          product_id,
-          quantity,
-        })
-        .select()
-        .single()
-
-      if (error) {
-        return NextResponse.json({ error: "Failed to add to cart" }, { status: 500 })
-      }
-
+      const created_at = new Date().toISOString()
+      const id = `${decoded.userId}-${product_id}`
+      await db.collection("cart_items").insertOne({ id, buyer_id: decoded.userId, product_id, quantity, created_at })
+      const newItem = await db.collection("cart_items").findOne({ id })
       return NextResponse.json(newItem)
     }
   } catch (error) {
@@ -80,24 +56,33 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const supabase = createServerClient()
-
-    const { data: cartItems, error } = await supabase
-      .from("cart_items")
-      .select(`
-        *,
-        product:products(
-          *,
-          seller:users!products_seller_id_fkey(name, location)
-        )
-      `)
-      .eq("buyer_id", decoded.userId)
-      .order("created_at", { ascending: false })
-
-    if (error) {
-      return NextResponse.json({ error: "Failed to fetch cart" }, { status: 500 })
-    }
-
+    const db = await getDb()
+    const cartItems = await db
+      .collection("cart_items")
+      .aggregate([
+        { $match: { buyer_id: decoded.userId } },
+        { $sort: { created_at: -1 } },
+        {
+          $lookup: {
+            from: "products",
+            localField: "product_id",
+            foreignField: "id",
+            as: "product",
+          },
+        },
+        { $addFields: { product: { $arrayElemAt: ["$product", 0] } } },
+        {
+          $lookup: {
+            from: "users",
+            localField: "product.seller_id",
+            foreignField: "id",
+            as: "seller",
+          },
+        },
+        { $addFields: { "product.seller": { $arrayElemAt: ["$seller", 0] } } },
+        { $project: { "product.seller.password_hash": 0 } },
+      ])
+      .toArray()
     return NextResponse.json(cartItems)
   } catch (error) {
     console.error("Cart fetch error:", error)
@@ -120,20 +105,9 @@ export async function PUT(request: NextRequest) {
     }
 
     const { cart_item_id, quantity } = await request.json()
-    const supabase = createServerClient()
-
-    const { data: updatedItem, error } = await supabase
-      .from("cart_items")
-      .update({ quantity })
-      .eq("id", cart_item_id)
-      .eq("buyer_id", decoded.userId)
-      .select()
-      .single()
-
-    if (error) {
-      return NextResponse.json({ error: "Failed to update cart item" }, { status: 500 })
-    }
-
+    const db = await getDb()
+    await db.collection("cart_items").updateOne({ id: cart_item_id, buyer_id: decoded.userId }, { $set: { quantity } })
+    const updatedItem = await db.collection("cart_items").findOne({ id: cart_item_id, buyer_id: decoded.userId })
     return NextResponse.json(updatedItem)
   } catch (error) {
     console.error("Cart update error:", error)
@@ -162,14 +136,8 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Cart item ID required" }, { status: 400 })
     }
 
-    const supabase = createServerClient()
-
-    const { error } = await supabase.from("cart_items").delete().eq("id", cartItemId).eq("buyer_id", decoded.userId)
-
-    if (error) {
-      return NextResponse.json({ error: "Failed to delete cart item" }, { status: 500 })
-    }
-
+    const db = await getDb()
+    await db.collection("cart_items").deleteOne({ id: cartItemId, buyer_id: decoded.userId })
     return NextResponse.json({ message: "Item removed from cart" })
   } catch (error) {
     console.error("Cart delete error:", error)

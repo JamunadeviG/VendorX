@@ -1,59 +1,43 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { createServerClient } from "@/lib/supabase"
-import { hashPassword, generateToken } from "@/lib/auth"
+import { generateToken, hashPassword } from "@/lib/auth"
+import { getDb } from "@/lib/mongodb"
 
 export async function POST(request: NextRequest) {
   try {
-    const { name, email, password, role, location } = await request.json()
-    const supabase = createServerClient()
+    const { email, password, name, location, role } = await request.json()
 
-    // Check if user already exists
-    const { data: existingUser } = await supabase.from("users").select("id").eq("email", email).single()
-
-    if (existingUser) {
-      return NextResponse.json({ error: "User already exists" }, { status: 400 })
+    if (!email || !password || !name) {
+      return NextResponse.json({ error: "Email, password and name are required" }, { status: 400 })
     }
 
-    // Hash password
-    const passwordHash = await hashPassword(password)
+    const normalizedRole = role === "seller" ? "seller" : "buyer"
+    const db = await getDb()
 
-    // Create user
-    const { data: user, error } = await supabase
-      .from("users")
-      .insert({
-        name,
-        email,
-        password_hash: passwordHash,
-        role,
-        location,
-      })
-      .select("id, name, email, role, location, created_at")
-      .single()
-
-    if (error) {
-      console.error("Signup error:", error)
-      return NextResponse.json({ error: "Failed to create user" }, { status: 500 })
+    const existing = await db.collection("users").findOne({ email })
+    if (existing) {
+      return NextResponse.json({ error: "Email already in use" }, { status: 409 })
     }
 
-    // Generate JWT token
-    const token = await generateToken(user.id, user.role)
+    const password_hash = await hashPassword(password)
+    const created_at = new Date().toISOString()
+    const id = crypto.randomUUID()
 
-    const response = NextResponse.json({
-      user,
-      token,
-    })
+    await db.collection("users").insertOne({ id, email, name, role: normalizedRole, location, password_hash, created_at })
 
-    // Set HTTP-only cookie
+    const token = await generateToken(id, normalizedRole)
+
+    const userWithoutPassword = { id, email, name, role: normalizedRole, location, created_at }
+
+    const response = NextResponse.json({ user: userWithoutPassword, token })
     response.cookies.set("auth-token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60, // 7 days
+      maxAge: 7 * 24 * 60 * 60,
     })
-
     return response
   } catch (error) {
     console.error("Signup error:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to create user" }, { status: 500 })
   }
 }

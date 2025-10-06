@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { cookies } from "next/headers"
 import { verifyToken } from "@/lib/auth"
-import { createServerClient } from "@/lib/supabase"
+import { getDb } from "@/lib/mongodb"
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,27 +18,21 @@ export async function POST(request: NextRequest) {
     }
 
     const { title, description, price, stock_count, category, image_url } = await request.json()
-    const supabase = createServerClient()
+    const db = await getDb()
+    const created_at = new Date().toISOString()
 
-    const { data: product, error } = await supabase
-      .from("products")
-      .insert({
-        title,
-        description,
-        price,
-        stock_count,
-        category,
-        image_url,
-        seller_id: decoded.userId,
-      })
-      .select()
-      .single()
+    const insertResult = await db.collection("products").insertOne({
+      title,
+      description,
+      price,
+      stock_count,
+      category,
+      image_url,
+      seller_id: decoded.userId,
+      created_at,
+    })
 
-    if (error) {
-      console.error("Product creation error:", error)
-      return NextResponse.json({ error: "Failed to create product" }, { status: 500 })
-    }
-
+    const product = await db.collection("products").findOne({ _id: insertResult.insertedId })
     return NextResponse.json(product)
   } catch (error) {
     console.error("Product creation error:", error)
@@ -48,21 +42,24 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   try {
-    const supabase = createServerClient()
-
-    const { data: products, error } = await supabase
-      .from("products")
-      .select(`
-        *,
-        seller:users!products_seller_id_fkey(name, location)
-      `)
-      .gt("stock_count", 0)
-      .order("created_at", { ascending: false })
-
-    if (error) {
-      console.error("Products fetch error:", error)
-      return NextResponse.json({ error: "Failed to fetch products" }, { status: 500 })
-    }
+    const db = await getDb()
+    const products = await db
+      .collection("products")
+      .aggregate([
+        { $match: { stock_count: { $gt: 0 } } },
+        { $sort: { created_at: -1 } },
+        {
+          $lookup: {
+            from: "users",
+            localField: "seller_id",
+            foreignField: "id",
+            as: "seller",
+          },
+        },
+        { $addFields: { seller: { $arrayElemAt: ["$seller", 0] } } },
+        { $project: { "seller.password_hash": 0 } },
+      ])
+      .toArray()
 
     return NextResponse.json(products)
   } catch (error) {

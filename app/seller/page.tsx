@@ -1,7 +1,7 @@
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 import { verifyToken } from "@/lib/auth"
-import { createServerClient } from "@/lib/supabase"
+import { getDb } from "@/lib/mongodb"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
@@ -9,31 +9,38 @@ import { Package, ShoppingCart, Plus, BarChart3 } from "lucide-react"
 import LogoutButton from "@/components/logout-button"
 
 async function getSellerData(sellerId: string) {
-  const supabase = createServerClient()
+  const db = await getDb()
 
-  // Get products count
-  const { count: productsCount } = await supabase
-    .from("products")
-    .select("*", { count: "exact", head: true })
-    .eq("seller_id", sellerId)
+  const productsCount = await db.collection("products").countDocuments({ seller_id: sellerId })
+  const buyRequestsCount = await db.collection("buy_requests").countDocuments({ seller_id: sellerId })
 
-  // Get buy requests count
-  const { count: buyRequestsCount } = await supabase
-    .from("buy_requests")
-    .select("*", { count: "exact", head: true })
-    .eq("seller_id", sellerId)
-
-  // Get recent buy requests
-  const { data: recentRequests } = await supabase
-    .from("buy_requests")
-    .select(`
-      *,
-      buyer:users!buy_requests_buyer_id_fkey(name, location),
-      product:products(title, price)
-    `)
-    .eq("seller_id", sellerId)
-    .order("created_at", { ascending: false })
-    .limit(5)
+  const recentRequests = await db
+    .collection("buy_requests")
+    .aggregate([
+      { $match: { seller_id: sellerId } },
+      { $sort: { created_at: -1 } },
+      { $limit: 5 },
+      {
+        $lookup: {
+          from: "users",
+          localField: "buyer_id",
+          foreignField: "id",
+          as: "buyer",
+        },
+      },
+      { $addFields: { buyer: { $arrayElemAt: ["$buyer", 0] } } },
+      {
+        $lookup: {
+          from: "products",
+          localField: "product_id",
+          foreignField: "id",
+          as: "product",
+        },
+      },
+      { $addFields: { product: { $arrayElemAt: ["$product", 0] } } },
+      { $project: { "buyer.password_hash": 0 } },
+    ])
+    .toArray()
 
   return {
     productsCount: productsCount || 0,
