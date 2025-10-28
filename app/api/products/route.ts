@@ -33,6 +33,10 @@ export async function POST(request: NextRequest) {
     })
 
     const product = await db.collection("products").findOne({ _id: insertResult.insertedId })
+    // Add id field for frontend compatibility
+    if (product) {
+      product.id = product._id.toString()
+    }
     return NextResponse.json(product)
   } catch (error) {
     console.error("Product creation error:", error)
@@ -57,6 +61,10 @@ export async function GET() {
           },
         },
         { $addFields: { seller: { $arrayElemAt: ["$seller", 0] } } },
+        { $addFields: { 
+          id: { $toString: "$_id" },
+          "seller.id": { $toString: "$seller._id" }
+        } },
         { $project: { "seller.password_hash": 0 } },
       ])
       .toArray()

@@ -11,7 +11,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     const product = await db
       .collection("products")
       .aggregate([
-        { $match: { id: productId } },
+        { $match: { _id: productId } },
         {
           $lookup: {
             from: "users",
@@ -21,6 +21,10 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
           },
         },
         { $addFields: { seller: { $arrayElemAt: ["$seller", 0] } } },
+        { $addFields: { 
+          id: { $toString: "$_id" },
+          "seller.id": { $toString: "$seller._id" }
+        } },
         { $project: { "seller.password_hash": 0 } },
       ])
       .next()
@@ -54,14 +58,14 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     const { title, description, price, stock_count, category, image_url } = await request.json()
     const db = await getDb()
 
-    const existingProduct = await db.collection("products").findOne({ id: productId })
+    const existingProduct = await db.collection("products").findOne({ _id: productId })
 
     if (!existingProduct || existingProduct.seller_id !== decoded.userId) {
       return NextResponse.json({ error: "Product not found or unauthorized" }, { status: 404 })
     }
 
     await db.collection("products").updateOne(
-      { id: productId },
+      { _id: productId },
       {
         $set: {
           title,
@@ -74,7 +78,10 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       }
     )
 
-    const product = await db.collection("products").findOne({ id: productId })
+    const product = await db.collection("products").findOne({ _id: productId })
+    if (product) {
+      product.id = product._id.toString()
+    }
     return NextResponse.json(product)
   } catch (error) {
     console.error("Product update error:", error)
@@ -98,13 +105,13 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
     const productId = params.id
     const db = await getDb()
-    const existingProduct = await db.collection("products").findOne({ id: productId })
+    const existingProduct = await db.collection("products").findOne({ _id: productId })
 
     if (!existingProduct || existingProduct.seller_id !== decoded.userId) {
       return NextResponse.json({ error: "Product not found or unauthorized" }, { status: 404 })
     }
 
-    await db.collection("products").deleteOne({ id: productId })
+    await db.collection("products").deleteOne({ _id: productId })
     return NextResponse.json({ message: "Product deleted successfully" })
   } catch (error) {
     console.error("Product delete error:", error)

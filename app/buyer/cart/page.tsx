@@ -22,7 +22,7 @@ async function getCartItems(buyerId: string) {
         $lookup: {
           from: "products",
           localField: "product_id",
-          foreignField: "id",
+          foreignField: "_id",
           as: "product",
         },
       },
@@ -36,6 +36,11 @@ async function getCartItems(buyerId: string) {
         },
       },
       { $addFields: { "product.seller": { $arrayElemAt: ["$seller", 0] } } },
+      { $addFields: { 
+        id: { $toString: "$_id" }, 
+        "product.id": { $toString: "$product._id" },
+        "product.seller.id": { $toString: "$product.seller._id" }
+      } },
       { $project: { "product.seller.password_hash": 0 } },
     ])
     .toArray()

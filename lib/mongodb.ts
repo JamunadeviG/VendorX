@@ -11,7 +11,7 @@ if (!globalForMongo.__MONGO_CACHE__) {
 }
 
 export async function getDb(): Promise<Db> {
-  const uri = process.env.MONGODB_URI || process.env.NEXT_PUBLIC_MONGODB_URI
+  const uri = process.env.MONGODB_URI || process.env.NEXT_PUBLIC_MONGODB_URI || "mongodb://localhost:27017"
   const dbName = process.env.MONGODB_DB || "vendorx"
 
   if (!uri) {
@@ -24,13 +24,18 @@ export async function getDb(): Promise<Db> {
     return mongoCache.db
   }
 
-  const client = new MongoClient(uri)
-  await client.connect()
-  const db = client.db(dbName)
+  try {
+    const client = new MongoClient(uri)
+    await client.connect()
+    const db = client.db(dbName)
 
-  mongoCache.client = client
-  mongoCache.db = db
-  return db
+    mongoCache.client = client
+    mongoCache.db = db
+    return db
+  } catch (error) {
+    console.error("MongoDB connection error:", error)
+    throw new Error("Failed to connect to MongoDB. Please ensure MongoDB is running or check your connection string.")
+  }
 }
 
 export async function closeDb(): Promise<void> {

@@ -28,6 +28,10 @@ async function getBuyerData(buyerId: string) {
         },
       },
       { $addFields: { seller: { $arrayElemAt: ["$seller", 0] } } },
+      { $addFields: { 
+        id: { $toString: "$_id" },
+        "seller.id": { $toString: "$seller._id" }
+      } },
       { $project: { "seller.password_hash": 0 } },
     ])
     .toArray()

@@ -101,11 +101,11 @@ export default function Footer() {
               </div>
               <div className="flex items-center space-x-3">
                 <Phone className="h-4 w-4 text-accent-blue" />
-                <span className="text-text-secondary text-sm">+1 (555) 123-4567</span>
+                <span className="text-text-secondary text-sm">+91 9080468010</span>
               </div>
               <div className="flex items-center space-x-3">
                 <MapPin className="h-4 w-4 text-accent-blue" />
-                <span className="text-text-secondary text-sm">123 Vendor St, City, State 12345</span>
+                <span className="text-text-secondary text-sm">Perundurai, Erode</span>
               </div>
             </div>
           </div>

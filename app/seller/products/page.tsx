@@ -14,8 +14,11 @@ async function getSellerProducts(sellerId: string) {
   const db = await getDb()
   const products = await db
     .collection("products")
-    .find({ seller_id: sellerId })
-    .sort({ created_at: -1 })
+    .aggregate([
+      { $match: { seller_id: sellerId } },
+      { $sort: { created_at: -1 } },
+      { $addFields: { id: { $toString: "$_id" } } },
+    ])
     .toArray()
   return products || []
 }

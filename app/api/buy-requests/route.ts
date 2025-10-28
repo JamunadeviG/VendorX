@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
 
     const product = await db
       .collection("products")
-      .findOne({ id: product_id }, { projection: { seller_id: 1, stock_count: 1 } })
+      .findOne({ _id: product_id }, { projection: { seller_id: 1, stock_count: 1 } })
 
     if (!product) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 })

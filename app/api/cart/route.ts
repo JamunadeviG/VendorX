@@ -26,14 +26,19 @@ export async function POST(request: NextRequest) {
       // Update quantity
       await db
         .collection("cart_items")
-        .updateOne({ id: existingItem.id }, { $set: { quantity: existingItem.quantity + quantity } })
-      const updatedItem = await db.collection("cart_items").findOne({ id: existingItem.id })
+        .updateOne({ _id: existingItem._id }, { $set: { quantity: existingItem.quantity + quantity } })
+      const updatedItem = await db.collection("cart_items").findOne({ _id: existingItem._id })
+      if (updatedItem) {
+        updatedItem.id = updatedItem._id.toString()
+      }
       return NextResponse.json(updatedItem)
     } else {
       const created_at = new Date().toISOString()
-      const id = `${decoded.userId}-${product_id}`
-      await db.collection("cart_items").insertOne({ id, buyer_id: decoded.userId, product_id, quantity, created_at })
-      const newItem = await db.collection("cart_items").findOne({ id })
+      const insertResult = await db.collection("cart_items").insertOne({ buyer_id: decoded.userId, product_id, quantity, created_at })
+      const newItem = await db.collection("cart_items").findOne({ _id: insertResult.insertedId })
+      if (newItem) {
+        newItem.id = newItem._id.toString()
+      }
       return NextResponse.json(newItem)
     }
   } catch (error) {
@@ -66,7 +71,7 @@ export async function GET() {
           $lookup: {
             from: "products",
             localField: "product_id",
-            foreignField: "id",
+            foreignField: "_id",
             as: "product",
           },
         },
@@ -80,6 +85,11 @@ export async function GET() {
           },
         },
         { $addFields: { "product.seller": { $arrayElemAt: ["$seller", 0] } } },
+        { $addFields: { 
+          id: { $toString: "$_id" }, 
+          "product.id": { $toString: "$product._id" },
+          "product.seller.id": { $toString: "$product.seller._id" }
+        } },
         { $project: { "product.seller.password_hash": 0 } },
       ])
       .toArray()
@@ -106,8 +116,11 @@ export async function PUT(request: NextRequest) {
 
     const { cart_item_id, quantity } = await request.json()
     const db = await getDb()
-    await db.collection("cart_items").updateOne({ id: cart_item_id, buyer_id: decoded.userId }, { $set: { quantity } })
-    const updatedItem = await db.collection("cart_items").findOne({ id: cart_item_id, buyer_id: decoded.userId })
+    await db.collection("cart_items").updateOne({ _id: cart_item_id, buyer_id: decoded.userId }, { $set: { quantity } })
+    const updatedItem = await db.collection("cart_items").findOne({ _id: cart_item_id, buyer_id: decoded.userId })
+    if (updatedItem) {
+      updatedItem.id = updatedItem._id.toString()
+    }
     return NextResponse.json(updatedItem)
   } catch (error) {
     console.error("Cart update error:", error)
@@ -137,7 +150,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     const db = await getDb()
-    await db.collection("cart_items").deleteOne({ id: cartItemId, buyer_id: decoded.userId })
+    await db.collection("cart_items").deleteOne({ _id: cartItemId, buyer_id: decoded.userId })
     return NextResponse.json({ message: "Item removed from cart" })
   } catch (error) {
     console.error("Cart delete error:", error)
